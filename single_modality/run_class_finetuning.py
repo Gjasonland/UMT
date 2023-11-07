@@ -6,6 +6,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import json
 import os
+import wandb
 from functools import partial
 from pathlib import Path
 from collections import OrderedDict
@@ -22,8 +23,20 @@ from utils import NativeScalerWithGradNormCount as NativeScaler
 from utils import multiple_samples_collate
 import utils
 from models import *
-
-
+"""
+wandb.init(
+    # set the wandb project where this run will be logged
+    project="UMT-single_modal",
+    
+    # track hyperparameters and run metadata
+    config={
+    "learning_rate": 1e-3,
+    "architecture": "ViT b16",
+    "dataset": "Autobio",
+    "epochs": 200,
+    }
+)
+"""
 def get_args():
     parser = argparse.ArgumentParser('VideoMAE fine-tuning and evaluation script for video classification', add_help=False)
     parser.add_argument('--batch_size', default=64, type=int)
@@ -522,7 +535,7 @@ def main(args, ds_init):
     if args.eval:
         preds_file = os.path.join(args.output_dir, str(global_rank) + '.txt')
         test_stats = final_test(data_loader_test, model, device, preds_file)
-        torch.distributed.barrier()
+        #torch.distributed.barrier()
         if global_rank == 0:
             print("Start merging results...")
             final_top1 ,final_top5 = merge(args.output_dir, num_tasks)
@@ -579,6 +592,10 @@ def main(args, ds_init):
                          **{f'val_{k}': v for k, v in test_stats.items()},
                          'epoch': epoch,
                          'n_parameters': n_parameters}
+            print(train_stats)
+            wandb.log({"train_loss":train_stats['loss']})
+            print(test_stats)
+            wandb.log({"val_loss":test_stats['loss'],"val_acc1":test_stats['acc1'],"val_acc5":test_stats['acc5']})
         else:
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          'epoch': epoch,
@@ -595,7 +612,7 @@ def main(args, ds_init):
             args=args, model=model, model_without_ddp=model_without_ddp,
             optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
     test_stats = final_test(data_loader_test, model, device, preds_file)
-    torch.distributed.barrier()
+    #torch.distributed.barrier()
     if global_rank == 0:
         print("Start merging results...")
         final_top1 ,final_top5 = merge(args.output_dir, num_tasks)

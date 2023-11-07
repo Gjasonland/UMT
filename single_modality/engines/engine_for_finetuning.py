@@ -9,7 +9,7 @@ from datasets.mixup import Mixup
 from timm.utils import accuracy, ModelEma
 import utils
 from scipy.special import softmax
-
+import pickle
 
 def train_class_batch(model, samples, target, criterion):
     outputs = model(samples)
@@ -53,7 +53,8 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     param_group["lr"] = lr_schedule_values[it] * param_group["lr_scale"]
                 if wd_schedule_values is not None and param_group["weight_decay"] > 0:
                     param_group["weight_decay"] = wd_schedule_values[it]
-
+        t=[int(num) for num in targets]
+        targets=torch.tensor(t)
         samples = samples.to(device, non_blocking=True)
         targets = targets.to(device, non_blocking=True)
 
@@ -154,6 +155,8 @@ def validation_one_epoch(data_loader, model, device, fp32=False):
     for batch in metric_logger.log_every(data_loader, 10, header):
         videos = batch[0]
         target = batch[1]
+        t=[int(num) for num in target]
+        target=torch.tensor(t)
         videos = videos.to(device, non_blocking=True)
         target = target.to(device, non_blocking=True)
 
@@ -193,7 +196,10 @@ def final_test(data_loader, model, device, file):
         ids = batch[2]
         chunk_nb = batch[3]
         split_nb = batch[4]
+        sample = batch[5]
         videos = videos.to(device, non_blocking=True)
+        t=[int(num) for num in target]
+        target=torch.tensor(t)
         target = target.to(device, non_blocking=True)
 
         # compute output
@@ -210,7 +216,6 @@ def final_test(data_loader, model, device, file):
             final_result.append(string)
 
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
-
         batch_size = videos.shape[0]
         metric_logger.update(loss=loss.item())
         metric_logger.meters['acc1'].update(acc1.item(), n=batch_size)
@@ -257,9 +262,7 @@ def merge(eval_path, num_tasks):
             dict_pos[name].append(chunk_nb + split_nb)
             dict_label[name] = label
     print("Computing final results")
-
     input_lst = []
-    print(len(dict_feats))
     for i, item in enumerate(dict_feats):
         input_lst.append([i, item, dict_feats[item], dict_label[item]])
     from multiprocessing import Pool
@@ -269,7 +272,17 @@ def merge(eval_path, num_tasks):
     top5 = [x[2] for x in ans]
     pred = [x[0] for x in ans]
     label = [x[3] for x in ans]
+    names = [x[4] for x in ans]
     final_top1 ,final_top5 = np.mean(top1), np.mean(top5)
+    print(label)
+    print(pred)
+    print(names)
+    result={"label":label,"prediction":pred,"name":names}
+    with open("predict_res.pkl", 'wb') as file:
+        pickle.dump(result, file)
+    for target, output, video_name in zip(label,pred,names):
+        if target!=output:
+            print(f"video {video_name} is wrongly classified from {target} to {output}")
     return final_top1*100 ,final_top5*100
 
 def compute_video(lst):
@@ -279,4 +292,4 @@ def compute_video(lst):
     pred = np.argmax(feat)
     top1 = (int(pred) == int(label)) * 1.0
     top5 = (int(label) in np.argsort(-feat)[:5]) * 1.0
-    return [pred, top1, top5, int(label)]
+    return [pred, top1, top5, int(label),video_id]

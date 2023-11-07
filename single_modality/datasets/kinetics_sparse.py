@@ -169,7 +169,7 @@ class VideoClsDataset_sparse(Dataset):
 
             buffer = self.data_transform(buffer)
             return buffer, self.test_label_array[index], sample.split("/")[-1].split(".")[0], \
-                   chunk_nb, split_nb
+                   chunk_nb, split_nb, sample
         else:
             raise NameError('mode {} unkown'.format(self.mode))
 
